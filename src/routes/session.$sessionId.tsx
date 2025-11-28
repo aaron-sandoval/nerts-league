@@ -2,9 +2,9 @@ import { convexQuery } from "@convex-dev/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
-import { ArrowLeft, Plus, Save, Trophy, BarChart3 } from "lucide-react";
+import { ArrowLeft, Save, Trophy, BarChart3, Check, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/session/$sessionId")({
@@ -27,27 +27,49 @@ function SessionPage() {
   const { data: session } = useSuspenseQuery(sessionDetailsQuery);
 
   const [showScoreEntry, setShowScoreEntry] = useState(false);
-  const [newGameScores, setNewGameScores] = useState<Record<string, number>>({});
-  const [nertsPlayerId, setNertsPlayerId] = useState<string>("");
+  const [newGameScores, setNewGameScores] = useState<Record<string, number | "">>({});
+  const [focusedCell, setFocusedCell] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const recordGame = useMutation(api.sessionGames.recordSessionGame);
   const endSession = useMutation(api.sessions.endSession);
 
   // Initialize scores for new game
   const initializeNewGame = () => {
-    const initialScores: Record<string, number> = {};
+    const initialScores: Record<string, number | ""> = {};
     session.participants.forEach((p) => {
-      initialScores[p.userId] = 0;
+      initialScores[p.userId] = "";
     });
     setNewGameScores(initialScores);
-    setNertsPlayerId("");
     setShowScoreEntry(true);
+    setFocusedCell(0);
+  };
+
+  // Calculate winner (highest score)
+  const getWinner = () => {
+    let highestScore = -Infinity;
+    let winnerId = "";
+
+    Object.entries(newGameScores).forEach(([playerId, score]) => {
+      const numScore = Number(score);
+      if (!isNaN(numScore) && numScore > highestScore) {
+        highestScore = numScore;
+        winnerId = playerId;
+      }
+    });
+
+    return winnerId;
+  };
+
+  // Calculate nerts player (highest score)
+  const getNertsPlayer = () => {
+    return getWinner();
   };
 
   const handleRecordGame = async () => {
     const playerScores = Object.entries(newGameScores)
-      .filter(([playerId, score]) => score !== undefined && score !== null)
+      .filter(([_, score]) => score !== "" && !isNaN(Number(score)))
       .map(([playerId, score]) => ({
         playerId: playerId as Id<"users">,
         score: Number(score),
@@ -60,6 +82,7 @@ function SessionPage() {
 
     setIsSubmitting(true);
     try {
+      const nertsPlayerId = getNertsPlayer();
       await recordGame({
         sessionId: sessionId as any,
         playerScores,
@@ -68,7 +91,7 @@ function SessionPage() {
 
       setShowScoreEntry(false);
       setNewGameScores({});
-      setNertsPlayerId("");
+      setFocusedCell(0);
     } catch (error) {
       console.error("Failed to record game:", error);
       alert("Failed to record game. Please try again.");
@@ -91,22 +114,38 @@ function SessionPage() {
     }
   };
 
-  // Auto-select nerts player as highest scorer
-  const autoSelectNertsPlayer = () => {
-    let highestScore = -Infinity;
-    let highestPlayerId = "";
-
-    Object.entries(newGameScores).forEach(([playerId, score]) => {
-      if (score > highestScore) {
-        highestScore = score;
-        highestPlayerId = playerId;
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === "ArrowRight" && index < session.participants.length - 1) {
+      e.preventDefault();
+      setFocusedCell(index + 1);
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      e.preventDefault();
+      setFocusedCell(index - 1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (index < session.participants.length - 1) {
+        setFocusedCell(index + 1);
+      } else {
+        handleRecordGame();
       }
-    });
-
-    if (highestPlayerId) {
-      setNertsPlayerId(highestPlayerId);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setShowScoreEntry(false);
+      setNewGameScores({});
+      setFocusedCell(0);
     }
   };
+
+  // Focus the input when focusedCell changes
+  useEffect(() => {
+    if (showScoreEntry && inputRefs.current[focusedCell]) {
+      inputRefs.current[focusedCell]?.focus();
+      inputRefs.current[focusedCell]?.select();
+    }
+  }, [focusedCell, showScoreEntry]);
+
+  const winnerId = getWinner();
+  const nertsPlayerId = getNertsPlayer();
 
   return (
     <div>
@@ -129,10 +168,10 @@ function SessionPage() {
               <BarChart3 className="w-4 h-4" /> Stats
             </button>
           </Link>
-          {session.isActive && (
+          {session.isActive && !showScoreEntry && (
             <>
               <button className="btn btn-primary btn-sm" onClick={initializeNewGame}>
-                <Plus className="w-4 h-4" /> Record Game
+                <Save className="w-4 h-4" /> Record New Game
               </button>
               <button className="btn btn-error btn-sm" onClick={handleEndSession}>
                 End Session
@@ -159,105 +198,10 @@ function SessionPage() {
         </div>
       )}
 
-      {/* Score Entry Modal */}
-      {showScoreEntry && (
-        <dialog open className="modal">
-          <div className="modal-box max-w-2xl">
-            <h3 className="font-bold text-lg mb-4">Record Game #{session.games.length + 1}</h3>
-
-            <div className="space-y-4">
-              {/* Score Inputs */}
-              <div className="grid grid-cols-2 gap-4">
-                {session.participants.map((p) => (
-                  <div key={p.userId}>
-                    <label className="label">
-                      <span className="label-text">
-                        {p.name} ({p.currentHandicap} cards)
-                      </span>
-                    </label>
-                    <input
-                      type="number"
-                      className="input input-border w-full"
-                      placeholder="Score"
-                      value={newGameScores[p.userId] || ""}
-                      onChange={(e) =>
-                        setNewGameScores({
-                          ...newGameScores,
-                          [p.userId]: e.target.valueAsNumber || 0,
-                        })
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {/* Nerts Player Selection */}
-              <div>
-                <label className="label">
-                  <span className="label-text">Who reached Nerts? (ran out of cards)</span>
-                </label>
-                <select
-                  className="select select-border w-full"
-                  value={nertsPlayerId}
-                  onChange={(e) => setNertsPlayerId(e.target.value)}
-                >
-                  <option value="">No one reached Nerts</option>
-                  {session.participants.map((p) => (
-                    <option key={p.userId} value={p.userId}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-xs mt-2"
-                  onClick={autoSelectNertsPlayer}
-                >
-                  Auto-select highest scorer
-                </button>
-              </div>
-            </div>
-
-            <div className="modal-action">
-              <button
-                className="btn"
-                onClick={() => {
-                  setShowScoreEntry(false);
-                  setNewGameScores({});
-                  setNertsPlayerId("");
-                }}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleRecordGame}
-                disabled={isSubmitting}
-              >
-                <Save className="w-4 h-4" />
-                {isSubmitting ? "Recording..." : "Record Game"}
-              </button>
-            </div>
-          </div>
-          <form method="dialog" className="modal-backdrop">
-            <button
-              onClick={() => {
-                setShowScoreEntry(false);
-                setNewGameScores({});
-                setNertsPlayerId("");
-              }}
-            >
-              close
-            </button>
-          </form>
-        </dialog>
-      )}
-
       {/* Games Table */}
       <div>
         <h2>Games</h2>
-        {session.games.length === 0 ? (
+        {session.games.length === 0 && !showScoreEntry ? (
           <div className="not-prose p-8 bg-base-200 rounded-lg text-center">
             <Trophy className="w-12 h-12 mx-auto mb-2 opacity-50" />
             <p className="opacity-70">No games recorded yet</p>
@@ -267,19 +211,92 @@ function SessionPage() {
             <table className="table table-zebra">
               <thead>
                 <tr>
-                  <th>Game #</th>
-                  <th>Date</th>
+                  <th className="w-16">Game #</th>
+                  <th className="w-24">Time</th>
                   {session.participants.map((p) => (
-                    <th key={p.userId}>{p.name}</th>
+                    <th key={p.userId} className="text-center min-w-24">
+                      <div>{p.name}</div>
+                      <div className="text-xs font-normal opacity-50">({p.currentHandicap} cards)</div>
+                    </th>
                   ))}
-                  <th>Nerts</th>
-                  <th>Winner</th>
+                  <th className="w-24">Nerts</th>
+                  <th className="w-24">Winner</th>
+                  {showScoreEntry && <th className="w-24">Actions</th>}
                 </tr>
               </thead>
               <tbody>
+                {/* New game entry row */}
+                {showScoreEntry && (
+                  <tr className="bg-primary bg-opacity-10">
+                    <td className="font-bold">#{session.games.length + 1}</td>
+                    <td className="text-xs opacity-70">Now</td>
+                    {session.participants.map((p, index) => (
+                      <td key={p.userId} className="text-center p-1">
+                        <input
+                          ref={(el) => {
+                            inputRefs.current[index] = el;
+                          }}
+                          type="number"
+                          className="input input-sm input-border w-full text-center font-bold"
+                          placeholder="0"
+                          value={newGameScores[p.userId] ?? ""}
+                          onChange={(e) =>
+                            setNewGameScores({
+                              ...newGameScores,
+                              [p.userId]: e.target.value === "" ? "" : e.target.valueAsNumber,
+                            })
+                          }
+                          onKeyDown={(e) => handleKeyDown(e, index)}
+                          onFocus={() => setFocusedCell(index)}
+                          disabled={isSubmitting}
+                        />
+                      </td>
+                    ))}
+                    <td className="text-center">
+                      {nertsPlayerId && (
+                        <span className="badge badge-sm badge-success">
+                          {session.participants.find((p) => p.userId === nertsPlayerId)?.name}
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-center">
+                      {winnerId && (
+                        <span className="badge badge-sm badge-primary">
+                          {session.participants.find((p) => p.userId === winnerId)?.name}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="flex gap-1">
+                        <button
+                          className="btn btn-success btn-xs"
+                          onClick={handleRecordGame}
+                          disabled={isSubmitting}
+                          title="Save (Enter)"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => {
+                            setShowScoreEntry(false);
+                            setNewGameScores({});
+                            setFocusedCell(0);
+                          }}
+                          disabled={isSubmitting}
+                          title="Cancel (Esc)"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Previous games */}
                 {session.games.map((game) => (
                   <tr key={game._id}>
-                    <td>{game.gameNumber}</td>
+                    <td>#{game.gameNumber}</td>
                     <td className="text-xs opacity-70">
                       {new Date(game.date).toLocaleTimeString()}
                     </td>
@@ -298,16 +315,17 @@ function SessionPage() {
                         </td>
                       );
                     })}
-                    <td>
+                    <td className="text-center">
                       {game.nertsPlayerName && (
                         <span className="badge badge-sm badge-success">{game.nertsPlayerName}</span>
                       )}
                     </td>
-                    <td>
+                    <td className="text-center">
                       {game.winnerName && (
                         <span className="badge badge-sm badge-primary">{game.winnerName}</span>
                       )}
                     </td>
+                    {showScoreEntry && <td></td>}
                   </tr>
                 ))}
               </tbody>
@@ -315,6 +333,15 @@ function SessionPage() {
           </div>
         )}
       </div>
+
+      {showScoreEntry && (
+        <div className="not-prose mt-4 p-4 bg-base-200 rounded-lg">
+          <p className="text-sm opacity-70">
+            <strong>Keyboard shortcuts:</strong> Use <kbd className="kbd kbd-sm">←</kbd> and <kbd className="kbd kbd-sm">→</kbd> to navigate between cells,
+            <kbd className="kbd kbd-sm">Enter</kbd> to save, <kbd className="kbd kbd-sm">Esc</kbd> to cancel
+          </p>
+        </div>
+      )}
     </div>
   );
 }
