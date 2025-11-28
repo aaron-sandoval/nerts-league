@@ -63,13 +63,15 @@ export const getPlayerGames = query({
   },
 });
 
-// Record a new game result
+// Record a new game result (DEPRECATED - use session-based game recording)
+// Kept for backward compatibility
 export const recordGame = mutation({
   args: {
     playerScores: v.array(
       v.object({
         playerId: v.id("users"),
         score: v.number(),
+        handicap: v.optional(v.number()), // Optional for backward compatibility
       })
     ),
     rules: v.optional(v.string()),
@@ -80,6 +82,8 @@ export const recordGame = mutation({
     if (args.playerScores.length === 0) {
       throw new ConvexError("At least one player score is required");
     }
+
+    const DEFAULT_STARTING_HANDICAP = 13;
 
     // Determine winner (highest score)
     let winnerId = args.playerScores[0].playerId;
@@ -92,10 +96,16 @@ export const recordGame = mutation({
       }
     }
 
-    // Create game record
+    // Create game record with handicaps
+    const playerScoresWithHandicap = args.playerScores.map((ps) => ({
+      playerId: ps.playerId,
+      score: ps.score,
+      handicap: ps.handicap ?? DEFAULT_STARTING_HANDICAP,
+    }));
+
     const gameId = await ctx.db.insert("games", {
       date: Date.now(),
-      playerScores: args.playerScores,
+      playerScores: playerScoresWithHandicap,
       winnerId,
       rules: args.rules,
     });
@@ -117,6 +127,7 @@ export const recordGame = mutation({
         // Create new stats if they don't exist
         await ctx.db.insert("players", {
           userId: ps.playerId,
+          currentHandicap: DEFAULT_STARTING_HANDICAP,
           gamesPlayed: 1,
           totalPoints: ps.score,
           wins: ps.playerId === winnerId ? 1 : 0,

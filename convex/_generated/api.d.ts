@@ -13,6 +13,12 @@ import type {
   FilterApi,
   FunctionReference,
 } from "convex/server";
+import type * as games from "../games.js";
+import type * as players from "../players.js";
+import type * as sessionGames from "../sessionGames.js";
+import type * as sessions from "../sessions.js";
+import type * as settings from "../settings.js";
+import type * as stats from "../stats.js";
 import type * as testingFunctions from "../testingFunctions.js";
 import type * as users from "../users.js";
 
@@ -25,6 +31,12 @@ import type * as users from "../users.js";
  * ```
  */
 declare const fullApi: ApiFromModules<{
+  games: typeof games;
+  players: typeof players;
+  sessionGames: typeof sessionGames;
+  sessions: typeof sessions;
+  settings: typeof settings;
+  stats: typeof stats;
   testingFunctions: typeof testingFunctions;
   users: typeof users;
 }>;

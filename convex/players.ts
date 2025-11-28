@@ -87,8 +87,12 @@ export const ensurePlayerStats = mutation({
       return existingStats;
     }
 
+    // TODO: Get starting handicap from league settings
+    const DEFAULT_STARTING_HANDICAP = 13;
+
     const statsId = await ctx.db.insert("players", {
       userId: user._id,
+      currentHandicap: DEFAULT_STARTING_HANDICAP,
       gamesPlayed: 0,
       totalPoints: 0,
       wins: 0,
