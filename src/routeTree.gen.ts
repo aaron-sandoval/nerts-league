@@ -9,38 +9,83 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SessionsRouteImport } from './routes/sessions'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SessionSessionIdRouteImport } from './routes/session.$sessionId'
+import { Route as SessionSessionIdStatsRouteImport } from './routes/session.$sessionId.stats'
 
+const SessionsRoute = SessionsRouteImport.update({
+  id: '/sessions',
+  path: '/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SessionSessionIdRoute = SessionSessionIdRouteImport.update({
+  id: '/session/$sessionId',
+  path: '/session/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SessionSessionIdStatsRoute = SessionSessionIdStatsRouteImport.update({
+  id: '/stats',
+  path: '/stats',
+  getParentRoute: () => SessionSessionIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/sessions': typeof SessionsRoute
+  '/session/$sessionId': typeof SessionSessionIdRouteWithChildren
+  '/session/$sessionId/stats': typeof SessionSessionIdStatsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/sessions': typeof SessionsRoute
+  '/session/$sessionId': typeof SessionSessionIdRouteWithChildren
+  '/session/$sessionId/stats': typeof SessionSessionIdStatsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/sessions': typeof SessionsRoute
+  '/session/$sessionId': typeof SessionSessionIdRouteWithChildren
+  '/session/$sessionId/stats': typeof SessionSessionIdStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/sessions'
+    | '/session/$sessionId'
+    | '/session/$sessionId/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/sessions' | '/session/$sessionId' | '/session/$sessionId/stats'
+  id:
+    | '__root__'
+    | '/'
+    | '/sessions'
+    | '/session/$sessionId'
+    | '/session/$sessionId/stats'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SessionsRoute: typeof SessionsRoute
+  SessionSessionIdRoute: typeof SessionSessionIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sessions': {
+      id: '/sessions'
+      path: '/sessions'
+      fullPath: '/sessions'
+      preLoaderRoute: typeof SessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,11 +93,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/session/$sessionId': {
+      id: '/session/$sessionId'
+      path: '/session/$sessionId'
+      fullPath: '/session/$sessionId'
+      preLoaderRoute: typeof SessionSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/session/$sessionId/stats': {
+      id: '/session/$sessionId/stats'
+      path: '/stats'
+      fullPath: '/session/$sessionId/stats'
+      preLoaderRoute: typeof SessionSessionIdStatsRouteImport
+      parentRoute: typeof SessionSessionIdRoute
+    }
   }
 }
 
+interface SessionSessionIdRouteChildren {
+  SessionSessionIdStatsRoute: typeof SessionSessionIdStatsRoute
+}
+
+const SessionSessionIdRouteChildren: SessionSessionIdRouteChildren = {
+  SessionSessionIdStatsRoute: SessionSessionIdStatsRoute,
+}
+
+const SessionSessionIdRouteWithChildren =
+  SessionSessionIdRoute._addFileChildren(SessionSessionIdRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SessionsRoute: SessionsRoute,
+  SessionSessionIdRoute: SessionSessionIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
