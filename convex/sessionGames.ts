@@ -2,6 +2,7 @@ import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { getCurrentUserOrCrash } from "./users";
+import { Id } from "./_generated/dataModel";
 import { DEFAULT_LEAGUE_RULES } from "./sessions";
 
 // Record a game within a session
@@ -37,7 +38,7 @@ export const recordSessionGame = mutation({
     const rules = JSON.parse(session.rules);
 
     // Get current handicaps for all players
-    const playerHandicaps = new Map<string, number>();
+    const playerHandicaps = new Map<Id<"users">, number>();
     for (const ps of args.playerScores) {
       let playerData = await ctx.db
         .query("players")
@@ -75,7 +76,7 @@ export const recordSessionGame = mutation({
     });
 
     // Determine winner (highest adjusted score) - unless noWinner is true
-    let winnerId: string | undefined = undefined;
+    let winnerId: Id<"users"> | undefined = undefined;
     if (!args.noWinner) {
       winnerId = adjustedScores[0].playerId;
       let highestScore = adjustedScores[0].score;
@@ -89,7 +90,7 @@ export const recordSessionGame = mutation({
     }
 
     // If no nertsPlayer was specified, default to the winner (or undefined if noWinner)
-    const nertsPlayerId = args.nertsPlayerId || winnerId;
+    const nertsPlayerId: Id<"users"> | undefined = args.nertsPlayerId || winnerId;
 
     // Get next game number
     const existingGames = await ctx.db
@@ -109,8 +110,8 @@ export const recordSessionGame = mutation({
         score: ps.score,
         handicap: ps.handicap,
       })),
-      nertsPlayerId,
-      winnerId,
+      nertsPlayerId: nertsPlayerId as Id<"users"> | undefined,
+      winnerId: winnerId as Id<"users"> | undefined,
     });
 
     // Update handicaps based on rules (only if session is ranked)
@@ -235,7 +236,7 @@ export const updateGameScores = mutation({
     });
 
     // Determine new winner - unless noWinner is true
-    let winnerId: string | undefined = undefined;
+    let winnerId: Id<"users"> | undefined = undefined;
     if (!args.noWinner) {
       winnerId = adjustedScores[0].playerId;
       let highestScore = adjustedScores[0].score;
@@ -251,8 +252,8 @@ export const updateGameScores = mutation({
     // Update the game
     await ctx.db.patch(args.gameId, {
       playerScores: adjustedScores,
-      nertsPlayerId: args.nertsPlayerId || winnerId,
-      winnerId,
+      nertsPlayerId: (args.nertsPlayerId || winnerId) as Id<"users"> | undefined,
+      winnerId: winnerId as Id<"users"> | undefined,
     });
 
     // TODO: Recalculate handicaps for all subsequent games in the session if ranked

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SessionsRouteImport } from './routes/sessions'
+import { Route as CareerStatsRouteImport } from './routes/career-stats'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SessionSessionIdRouteImport } from './routes/session.$sessionId'
 import { Route as SessionSessionIdStatsRouteImport } from './routes/session.$sessionId.stats'
@@ -17,6 +18,11 @@ import { Route as SessionSessionIdStatsRouteImport } from './routes/session.$ses
 const SessionsRoute = SessionsRouteImport.update({
   id: '/sessions',
   path: '/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CareerStatsRoute = CareerStatsRouteImport.update({
+  id: '/career-stats',
+  path: '/career-stats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -37,12 +43,14 @@ const SessionSessionIdStatsRoute = SessionSessionIdStatsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/career-stats': typeof CareerStatsRoute
   '/sessions': typeof SessionsRoute
   '/session/$sessionId': typeof SessionSessionIdRouteWithChildren
   '/session/$sessionId/stats': typeof SessionSessionIdStatsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/career-stats': typeof CareerStatsRoute
   '/sessions': typeof SessionsRoute
   '/session/$sessionId': typeof SessionSessionIdRouteWithChildren
   '/session/$sessionId/stats': typeof SessionSessionIdStatsRoute
@@ -50,6 +58,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/career-stats': typeof CareerStatsRoute
   '/sessions': typeof SessionsRoute
   '/session/$sessionId': typeof SessionSessionIdRouteWithChildren
   '/session/$sessionId/stats': typeof SessionSessionIdStatsRoute
@@ -58,14 +67,21 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/career-stats'
     | '/sessions'
     | '/session/$sessionId'
     | '/session/$sessionId/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/sessions' | '/session/$sessionId' | '/session/$sessionId/stats'
+  to:
+    | '/'
+    | '/career-stats'
+    | '/sessions'
+    | '/session/$sessionId'
+    | '/session/$sessionId/stats'
   id:
     | '__root__'
     | '/'
+    | '/career-stats'
     | '/sessions'
     | '/session/$sessionId'
     | '/session/$sessionId/stats'
@@ -73,6 +89,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CareerStatsRoute: typeof CareerStatsRoute
   SessionsRoute: typeof SessionsRoute
   SessionSessionIdRoute: typeof SessionSessionIdRouteWithChildren
 }
@@ -84,6 +101,13 @@ declare module '@tanstack/react-router' {
       path: '/sessions'
       fullPath: '/sessions'
       preLoaderRoute: typeof SessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/career-stats': {
+      id: '/career-stats'
+      path: '/career-stats'
+      fullPath: '/career-stats'
+      preLoaderRoute: typeof CareerStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -123,6 +147,7 @@ const SessionSessionIdRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CareerStatsRoute: CareerStatsRoute,
   SessionsRoute: SessionsRoute,
   SessionSessionIdRoute: SessionSessionIdRouteWithChildren,
 }

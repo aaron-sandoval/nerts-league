@@ -109,10 +109,136 @@ export const getSessionStats = query({
   },
 });
 
+// Helper function to calculate career stats for all players
+async function calculateAllCareerStats(ctx: any) {
+  // Get all ranked sessions
+  const sessions = await ctx.db.query("sessions").collect();
+  const rankedSessions = sessions.filter((s: any) => s.isRanked);
+
+  // Get all games from ranked sessions
+  const allGames: any[] = [];
+  for (const session of rankedSessions) {
+    const sessionGames = await ctx.db
+      .query("games")
+      .withIndex("by_sessionId", (q: any) => q.eq("sessionId", session._id))
+      .collect();
+    allGames.push(...sessionGames);
+  }
+
+  // Get all players
+  const players = await ctx.db.query("players").collect();
+
+  // Calculate stats for each player
+  const statsMap = new Map<string, {
+    userId: string;
+    sessionsPlayed: Set<string>;
+    gamesPlayed: number;
+    totalScore: number;
+    timesReachedNerts: number;
+    totalHandicap: number;
+    wins: number;
+  }>();
+
+  for (const player of players) {
+    statsMap.set(player.userId, {
+      userId: player.userId,
+      sessionsPlayed: new Set(),
+      gamesPlayed: 0,
+      totalScore: 0,
+      timesReachedNerts: 0,
+      totalHandicap: 0,
+      wins: 0,
+    });
+  }
+
+  // Process each game
+  for (const game of allGames) {
+    for (const ps of game.playerScores) {
+      let stats = statsMap.get(ps.playerId);
+      if (!stats) {
+        // Initialize if player doesn't have a record yet
+        stats = {
+          userId: ps.playerId,
+          sessionsPlayed: new Set(),
+          gamesPlayed: 0,
+          totalScore: 0,
+          timesReachedNerts: 0,
+          totalHandicap: 0,
+          wins: 0,
+        };
+        statsMap.set(ps.playerId, stats);
+      }
+
+      if (game.sessionId) {
+        stats.sessionsPlayed.add(game.sessionId);
+      }
+      stats.gamesPlayed++;
+      stats.totalScore += ps.score;
+      stats.totalHandicap += ps.handicap || 0;
+
+      if (game.nertsPlayerId === ps.playerId) {
+        stats.timesReachedNerts++;
+      }
+
+      if (game.winnerId === ps.playerId) {
+        stats.wins++;
+      }
+    }
+  }
+
+  // Convert to array and calculate averages
+  const statsArray = await Promise.all(
+    Array.from(statsMap.values()).map(async (stats) => {
+      const userDoc = await ctx.db.get(stats.userId as any);
+      const userName = userDoc && 'name' in userDoc ? userDoc.name : undefined;
+      const userGamertag = userDoc && 'gamertag' in userDoc ? userDoc.gamertag : undefined;
+      return {
+        userId: stats.userId,
+        name: userName || "Unknown",
+        gamertag: userGamertag,
+        sessionsPlayed: stats.sessionsPlayed.size,
+        gamesPlayed: stats.gamesPlayed,
+        averageScore: stats.gamesPlayed > 0 ? stats.totalScore / stats.gamesPlayed : 0,
+        timesReachedNerts: stats.timesReachedNerts,
+        averageHandicap: stats.gamesPlayed > 0 ? stats.totalHandicap / stats.gamesPlayed : 0,
+        wins: stats.wins,
+      };
+    })
+  );
+
+  // Sort by average score (descending) and add rank
+  statsArray.sort((a, b) => {
+    if (a.gamesPlayed === 0 && b.gamesPlayed === 0) return 0;
+    if (a.gamesPlayed === 0) return 1;
+    if (b.gamesPlayed === 0) return -1;
+    return b.averageScore - a.averageScore;
+  });
+
+  const rankedStats = statsArray.map((stats, index) => ({
+    ...stats,
+    rank: stats.gamesPlayed > 0 ? index + 1 : null,
+  }));
+
+  return rankedStats;
+}
+
 // Calculate career stats (only ranked games)
 export const getCareerStats = query({
   args: {},
   handler: async (ctx) => {
+    return await calculateAllCareerStats(ctx);
+  },
+});
+
+// Get detailed career stats for the current user
+export const getMyCareerStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const currentUser = await getCurrentUserOrNull(ctx);
+    if (!currentUser) {
+      throw new ConvexError("Not authenticated");
+    }
+
     // Get all ranked sessions
     const sessions = await ctx.db.query("sessions").collect();
     const rankedSessions = sessions.filter((s) => s.isRanked);
@@ -127,100 +253,118 @@ export const getCareerStats = query({
       allGames.push(...sessionGames);
     }
 
-    // Get all players
-    const players = await ctx.db.query("players").collect();
+    // Collect data for this user
+    const myScores: number[] = [];
+    const myHandicaps: number[] = [];
+    const sessionsPlayed = new Set<string>();
+    let timesReachedNerts = 0;
+    let totalPlayersInGames = 0;
+    const opponentHandicaps: number[] = [];
 
-    // Calculate stats for each player
-    const statsMap = new Map<string, {
-      userId: string;
-      sessionsPlayed: Set<string>;
-      gamesPlayed: number;
-      totalScore: number;
-      timesReachedNerts: number;
-      totalHandicap: number;
-      wins: number;
-    }>();
-
-    for (const player of players) {
-      statsMap.set(player.userId, {
-        userId: player.userId,
-        sessionsPlayed: new Set(),
-        gamesPlayed: 0,
-        totalScore: 0,
-        timesReachedNerts: 0,
-        totalHandicap: 0,
-        wins: 0,
-      });
-    }
-
-    // Process each game
     for (const game of allGames) {
-      for (const ps of game.playerScores) {
-        let stats = statsMap.get(ps.playerId);
-        if (!stats) {
-          // Initialize if player doesn't have a record yet
-          stats = {
-            userId: ps.playerId,
-            sessionsPlayed: new Set(),
-            gamesPlayed: 0,
-            totalScore: 0,
-            timesReachedNerts: 0,
-            totalHandicap: 0,
-            wins: 0,
-          };
-          statsMap.set(ps.playerId, stats);
-        }
-
+      const myScore = game.playerScores.find((ps: any) => ps.playerId === currentUser._id);
+      if (myScore) {
+        myScores.push(myScore.score);
+        myHandicaps.push(myScore.handicap || 0);
         if (game.sessionId) {
-          stats.sessionsPlayed.add(game.sessionId);
+          sessionsPlayed.add(game.sessionId);
         }
-        stats.gamesPlayed++;
-        stats.totalScore += ps.score;
-        stats.totalHandicap += ps.handicap || 0;
-
-        if (game.nertsPlayerId === ps.playerId) {
-          stats.timesReachedNerts++;
+        if (game.nertsPlayerId === currentUser._id) {
+          timesReachedNerts++;
         }
 
-        if (game.winnerId === ps.playerId) {
-          stats.wins++;
+        // Count total players in this game
+        totalPlayersInGames += game.playerScores.length;
+
+        // Collect opponent handicaps (all players except me)
+        const opponentHandicapsInGame = game.playerScores
+          .filter((ps: any) => ps.playerId !== currentUser._id)
+          .map((ps: any) => ps.handicap || 0);
+
+        if (opponentHandicapsInGame.length > 0) {
+          const avgOpponentHandicap = opponentHandicapsInGame.reduce((a: number, b: number) => a + b, 0) / opponentHandicapsInGame.length;
+          opponentHandicaps.push(avgOpponentHandicap);
         }
       }
     }
 
-    // Convert to array and calculate averages
-    const statsArray = await Promise.all(
-      Array.from(statsMap.values()).map(async (stats) => {
-        const userDoc = await ctx.db.get(stats.userId as any);
-        const userName = userDoc && 'name' in userDoc ? userDoc.name : undefined;
-        const userGamertag = userDoc && 'gamertag' in userDoc ? userDoc.gamertag : undefined;
-        return {
-          userId: stats.userId,
-          name: userName || "Unknown",
-          gamertag: userGamertag,
-          sessionsPlayed: stats.sessionsPlayed.size,
-          gamesPlayed: stats.gamesPlayed,
-          averageScore: stats.gamesPlayed > 0 ? stats.totalScore / stats.gamesPlayed : 0,
-          timesReachedNerts: stats.timesReachedNerts,
-          averageHandicap: stats.gamesPlayed > 0 ? stats.totalHandicap / stats.gamesPlayed : 0,
-          wins: stats.wins,
-        };
-      })
-    );
+    const matchesPlayed = myScores.length;
 
-    // Sort by average score (descending) and add rank
-    statsArray.sort((a, b) => {
-      if (a.gamesPlayed === 0 && b.gamesPlayed === 0) return 0;
-      if (a.gamesPlayed === 0) return 1;
-      if (b.gamesPlayed === 0) return -1;
-      return b.averageScore - a.averageScore;
-    });
+    if (matchesPlayed === 0) {
+      return {
+        sessionsPlayed: 0,
+        matchesPlayed: 0,
+        rank: null,
+        matchesReachedNerts: 0,
+        fractionReachedNerts: 0,
+        averagePlayersPerMatch: 0,
+        expectedMatchesReachingNerts: 0,
+        timesRandomRate: 0,
+        totalScore: 0,
+        averageScore: 0,
+        percentile25: 0,
+        median: 0,
+        percentile75: 0,
+        standardDeviation: 0,
+        averageHandicap: 0,
+        averageOpponentHandicap: 0,
+        averageDifferential: 0,
+      };
+    }
 
-    const rankedStats = statsArray.map((stats, index) => ({
-      ...stats,
-      rank: stats.gamesPlayed > 0 ? index + 1 : null,
-    }));
+    // Calculate Overall stats
+    const totalScore = myScores.reduce((a, b) => a + b, 0);
+    const averageScore = totalScore / matchesPlayed;
+    const averagePlayersPerMatch = totalPlayersInGames / matchesPlayed;
+    const expectedMatchesReachingNerts = matchesPlayed / averagePlayersPerMatch;
+    const timesRandomRate = timesReachedNerts / expectedMatchesReachingNerts;
 
-    return rankedStats;
+    // Calculate rank by getting all career stats and finding this user
+    const allStats = await calculateAllCareerStats(ctx);
+    const myRank = allStats.find((s) => s.userId === currentUser._id)?.rank || null;
+
+    // Calculate percentiles
+    const sortedScores = [...myScores].sort((a, b) => a - b);
+    const percentile25 = sortedScores[Math.floor(matchesPlayed * 0.25)] || 0;
+    const median = sortedScores[Math.floor(matchesPlayed * 0.5)] || 0;
+    const percentile75 = sortedScores[Math.floor(matchesPlayed * 0.75)] || 0;
+
+    // Calculate standard deviation
+    const variance = myScores.reduce((sum, score) => sum + Math.pow(score - averageScore, 2), 0) / matchesPlayed;
+    const standardDeviation = Math.sqrt(variance);
+
+    // Calculate Matchup stats
+    const averageHandicap = myHandicaps.reduce((a, b) => a + b, 0) / matchesPlayed;
+    const averageOpponentHandicap = opponentHandicaps.length > 0
+      ? opponentHandicaps.reduce((a, b) => a + b, 0) / opponentHandicaps.length
+      : 0;
+    const averageDifferential = averageHandicap - averageOpponentHandicap;
+
+    return {
+      // Overall
+      sessionsPlayed: sessionsPlayed.size,
+      matchesPlayed,
+      rank: myRank,
+
+      // Reaching Nerts
+      matchesReachedNerts: timesReachedNerts,
+      fractionReachedNerts: timesReachedNerts / matchesPlayed,
+      averagePlayersPerMatch,
+      expectedMatchesReachingNerts,
+      timesRandomRate,
+
+      // Score
+      totalScore,
+      averageScore,
+      percentile25,
+      median,
+      percentile75,
+      standardDeviation,
+
+      // Matchups
+      averageHandicap,
+      averageOpponentHandicap,
+      averageDifferential,
+    };
   },
 });

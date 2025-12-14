@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { customMutation } from "convex-helpers/server/customFunctions";
 import { mutation } from "./_generated/server";
+import { DEFAULT_LEAGUE_RULES } from "./sessions";
 
 const testingMutation = customMutation(mutation, {
   args: {},
@@ -20,5 +21,45 @@ export const deleteTestUser = testingMutation({
     if (user) {
       await ctx.db.delete(user._id);
     }
+  },
+});
+
+export const createTestUser = testingMutation({
+  args: { name: v.string(), clerkId: v.optional(v.string()) },
+  handler: async (ctx, { name, clerkId }) => {
+    const userId = await ctx.db.insert("users", {
+      name,
+      clerkId: clerkId || `test_${name.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}`,
+    });
+    return userId;
+  },
+});
+
+export const createTestSession = testingMutation({
+  args: {
+    name: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    isRanked: v.boolean(),
+    isPublic: v.optional(v.boolean()),
+    participantIds: v.array(v.id("users")),
+    createdBy: v.id("users"),
+    rules: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const rules = args.rules || JSON.stringify(DEFAULT_LEAGUE_RULES);
+    const isPublic = args.isRanked ? true : (args.isPublic ?? false);
+
+    const sessionId = await ctx.db.insert("sessions", {
+      name: args.name,
+      date: Date.now(),
+      notes: args.notes,
+      isRanked: args.isRanked,
+      isPublic,
+      participantIds: args.participantIds,
+      createdBy: args.createdBy,
+      isActive: true,
+      rules,
+    });
+    return sessionId;
   },
 });

@@ -1,8 +1,8 @@
 import { convexQuery } from "@convex-dev/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation } from "convex/react";
-import { ArrowLeft, Save, Trophy, BarChart3, Check, X, Pencil } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { ArrowLeft, Save, Trophy, BarChart3, Check, X, Pencil, UserPlus } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { useState, useRef, useEffect } from "react";
 import { Id } from "../../convex/_generated/dataModel";
@@ -30,24 +30,65 @@ function SessionPage() {
   const [newGameScores, setNewGameScores] = useState<Record<string, number | "">>({});
   const [focusedCell, setFocusedCell] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [noWinner, setNoWinner] = useState(false);
+  const [selectedWinnerId, setSelectedWinnerId] = useState<string | null>(null);
+  const [manuallySelectedWinner, setManuallySelectedWinner] = useState(false);
   const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [playerOrder, setPlayerOrder] = useState<string[]>([]);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [showAddPlayer, setShowAddPlayer] = useState(false);
 
   const recordGame = useMutation(api.sessionGames.recordSessionGame);
   const updateGame = useMutation(api.sessionGames.updateGameScores);
   const endSession = useMutation(api.sessions.endSession);
+  const addPlayer = useMutation(api.sessions.addPlayerToSession);
+  const allUsers = useQuery(api.users.listUsers);
+
+  // Initialize player order from session participants
+  useEffect(() => {
+    if (session && playerOrder.length === 0) {
+      setPlayerOrder(session.participants.map((p) => p.userId));
+    }
+  }, [session, playerOrder.length]);
+
+  // Get ordered participants based on custom order
+  const orderedParticipants = playerOrder
+    .map((userId) => session.participants.find((p) => p.userId === userId))
+    .filter((p): p is NonNullable<typeof p> => p !== undefined);
+
+  // Drag and drop handlers
+  const handleDragStart = (index: number) => {
+    setDraggedIndex(index);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === index) return;
+
+    const newOrder = [...playerOrder];
+    const draggedItem = newOrder[draggedIndex];
+    newOrder.splice(draggedIndex, 1);
+    newOrder.splice(index, 0, draggedItem);
+
+    setPlayerOrder(newOrder);
+    setDraggedIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+  };
 
   // Initialize scores for new game
   const initializeNewGame = () => {
     const initialScores: Record<string, number | ""> = {};
-    session.participants.forEach((p) => {
+    orderedParticipants.forEach((p) => {
       initialScores[p.userId] = "";
     });
     setNewGameScores(initialScores);
     setShowScoreEntry(true);
     setFocusedCell(0);
-    setNoWinner(false);
+    setSelectedWinnerId(null);
+    setManuallySelectedWinner(false);
     setEditingGameId(null);
   };
 
@@ -64,7 +105,8 @@ function SessionPage() {
     setShowScoreEntry(true);
     setEditingGameId(gameId);
     setFocusedCell(0);
-    setNoWinner(!game.winnerId);
+    setSelectedWinnerId(game.winnerId || null);
+    setManuallySelectedWinner(false);
   };
 
   // Calculate winner (highest score)
@@ -103,7 +145,10 @@ function SessionPage() {
 
     setIsSubmitting(true);
     try {
-      const nertsPlayerId = noWinner ? undefined : getNertsPlayer();
+      // Use selectedWinnerId if set, otherwise use auto-calculated winner
+      const winnerId = selectedWinnerId || getWinner();
+      const noWinner = selectedWinnerId === null;
+      const nertsPlayerId = noWinner ? undefined : (selectedWinnerId || getNertsPlayer());
 
       if (editingGameId) {
         // Update existing game
@@ -126,7 +171,8 @@ function SessionPage() {
       setShowScoreEntry(false);
       setNewGameScores({});
       setFocusedCell(0);
-      setNoWinner(false);
+      setSelectedWinnerId(null);
+      setManuallySelectedWinner(false);
       setEditingGameId(null);
     } catch (error) {
       console.error("Failed to record game:", error);
@@ -150,8 +196,23 @@ function SessionPage() {
     }
   };
 
+  const handleAddPlayer = async (userId: string) => {
+    try {
+      await addPlayer({
+        sessionId: sessionId as any,
+        playerId: userId as any,
+      });
+      setShowAddPlayer(false);
+      // Add the new player to the end of the player order
+      setPlayerOrder([...playerOrder, userId]);
+    } catch (error) {
+      console.error("Failed to add player:", error);
+      alert("Failed to add player");
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
-    if (e.key === "ArrowRight" && index < session.participants.length - 1) {
+    if (e.key === "ArrowRight" && index < orderedParticipants.length - 1) {
       e.preventDefault();
       setFocusedCell(index + 1);
     } else if (e.key === "ArrowLeft" && index > 0) {
@@ -159,7 +220,7 @@ function SessionPage() {
       setFocusedCell(index - 1);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (index < session.participants.length - 1) {
+      if (index < orderedParticipants.length - 1) {
         setFocusedCell(index + 1);
       } else {
         handleRecordGame();
@@ -169,7 +230,8 @@ function SessionPage() {
       setShowScoreEntry(false);
       setNewGameScores({});
       setFocusedCell(0);
-      setNoWinner(false);
+      setSelectedWinnerId(null);
+      setManuallySelectedWinner(false);
       setEditingGameId(null);
     }
   };
@@ -182,8 +244,21 @@ function SessionPage() {
     }
   }, [focusedCell, showScoreEntry]);
 
-  const winnerId = noWinner ? null : getWinner();
-  const nertsPlayerId = noWinner ? null : getNertsPlayer();
+  // Auto-set winner when scores change (only if not manually set)
+  useEffect(() => {
+    if (showScoreEntry && !manuallySelectedWinner) {
+      const autoWinner = getWinner();
+      setSelectedWinnerId(autoWinner || null);
+    }
+  }, [newGameScores, showScoreEntry, manuallySelectedWinner]);
+
+  // Get players with scores for the dropdown
+  const playersWithScores = Object.entries(newGameScores)
+    .filter(([_, score]) => score !== "" && !isNaN(Number(score)))
+    .map(([playerId]) => playerId);
+
+  const winnerId = selectedWinnerId;
+  const nertsPlayerId = selectedWinnerId;
 
   return (
     <div>
@@ -208,6 +283,9 @@ function SessionPage() {
           </Link>
           {session.isActive && !showScoreEntry && (
             <>
+              <button className="btn btn-outline btn-sm" onClick={() => setShowAddPlayer(true)}>
+                <UserPlus className="w-4 h-4" /> Add Player
+              </button>
               <button className="btn btn-primary btn-sm" onClick={initializeNewGame}>
                 <Save className="w-4 h-4" /> Record New Game
               </button>
@@ -225,7 +303,7 @@ function SessionPage() {
           <div className="card-body">
             <h3 className="card-title text-sm">Current Nerts Pile Sizes</h3>
             <div className="flex flex-wrap gap-3">
-              {session.participants.map((p) => (
+              {orderedParticipants.map((p) => (
                 <div key={p.userId} className="badge badge-lg badge-primary gap-2">
                   <span>{p.name}:</span>
                   <span className="font-bold">{p.currentHandicap} cards</span>
@@ -251,14 +329,24 @@ function SessionPage() {
                 <tr>
                   <th className="w-16">Game #</th>
                   <th className="w-24">Time</th>
-                  {session.participants.map((p) => (
-                    <th key={p.userId} className="text-center min-w-24">
+                  {orderedParticipants.map((p, index) => (
+                    <th
+                      key={p.userId}
+                      className="text-center min-w-24 cursor-move select-none"
+                      draggable
+                      onDragStart={() => handleDragStart(index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragEnd={handleDragEnd}
+                      style={{
+                        opacity: draggedIndex === index ? 0.5 : 1,
+                        transition: "opacity 0.2s",
+                      }}
+                    >
                       <div>{p.name}</div>
                       <div className="text-xs font-normal opacity-50">({p.currentHandicap} cards)</div>
                     </th>
                   ))}
-                  <th className="w-24">Nerts</th>
-                  <th className="w-24">Winner</th>
+                  <th className="w-32">Nerts</th>
                   <th className="w-24">Actions</th>
                 </tr>
               </thead>
@@ -272,7 +360,7 @@ function SessionPage() {
                         : `#${session.games.length + 1}`}
                     </td>
                     <td className="text-xs opacity-70">{editingGameId ? "Editing" : "Now"}</td>
-                    {session.participants.map((p, index) => (
+                    {orderedParticipants.map((p, index) => (
                       <td key={p.userId} className="text-center p-1">
                         <input
                           ref={(el) => {
@@ -294,31 +382,23 @@ function SessionPage() {
                         />
                       </td>
                     ))}
-                    <td className="text-center">
-                      {nertsPlayerId && !noWinner && (
-                        <span className="badge badge-sm badge-success">
-                          {session.participants.find((p) => p.userId === nertsPlayerId)?.name}
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        {winnerId && !noWinner && (
-                          <span className="badge badge-sm badge-primary">
-                            {session.participants.find((p) => p.userId === winnerId)?.name}
-                          </span>
-                        )}
-                        <label className="flex items-center gap-1 cursor-pointer text-xs">
-                          <input
-                            type="checkbox"
-                            className="checkbox checkbox-xs"
-                            checked={noWinner}
-                            onChange={(e) => setNoWinner(e.target.checked)}
-                            disabled={isSubmitting}
-                          />
-                          <span className="opacity-70">No winner</span>
-                        </label>
-                      </div>
+                    <td className="text-center p-1">
+                      <select
+                        className="select select-sm select-border w-full max-w-32"
+                        value={selectedWinnerId || ""}
+                        onChange={(e) => {
+                          setSelectedWinnerId(e.target.value || null);
+                          setManuallySelectedWinner(true);
+                        }}
+                        disabled={isSubmitting}
+                      >
+                        <option value="">No winner</option>
+                        {playersWithScores.map((playerId) => (
+                          <option key={playerId} value={playerId}>
+                            {session.participants.find((p) => p.userId === playerId)?.name}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td>
                       <div className="flex gap-1">
@@ -336,7 +416,7 @@ function SessionPage() {
                             setShowScoreEntry(false);
                             setNewGameScores({});
                             setFocusedCell(0);
-                            setNoWinner(false);
+                            setSelectedWinnerId(null);
                             setEditingGameId(null);
                           }}
                           disabled={isSubmitting}
@@ -360,7 +440,7 @@ function SessionPage() {
                       <td className="text-xs opacity-70">
                         {new Date(game.date).toLocaleTimeString()}
                       </td>
-                      {session.participants.map((p) => {
+                      {orderedParticipants.map((p) => {
                         const score = game.playerScores.find((ps) => ps.playerId === p.userId);
                         return (
                           <td key={p.userId} className="text-center">
@@ -375,11 +455,6 @@ function SessionPage() {
                           </td>
                         );
                       })}
-                      <td className="text-center">
-                        {game.nertsPlayerName && (
-                          <span className="badge badge-sm badge-success">{game.nertsPlayerName}</span>
-                        )}
-                      </td>
                       <td className="text-center">
                         {game.winnerName ? (
                           <span className="badge badge-sm badge-primary">{game.winnerName}</span>
@@ -412,9 +487,52 @@ function SessionPage() {
           <p className="text-sm opacity-70">
             <strong>Keyboard shortcuts:</strong> Use <kbd className="kbd kbd-sm">←</kbd> and <kbd className="kbd kbd-sm">→</kbd> to navigate between cells,
             <kbd className="kbd kbd-sm">Enter</kbd> to save, <kbd className="kbd kbd-sm">Esc</kbd> to cancel.
-            {editingGameId ? " Editing existing game." : " Recording new game."} Check "No winner" if no one won.
+            {editingGameId ? " Editing existing game." : " Recording new game."} Use the "Nerts" dropdown to select who reached Nerts (defaults to highest scorer).
           </p>
         </div>
+      )}
+
+      {/* Add Player Modal */}
+      {showAddPlayer && (
+        <dialog className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-bold text-lg mb-4">Add Player to Session</h3>
+            <div className="not-prose">
+              {allUsers ? (
+                <div className="space-y-2">
+                  {allUsers
+                    .filter((user) => !session.participants.some((p) => p.userId === user._id))
+                    .map((user) => (
+                      <button
+                        key={user._id}
+                        className="btn btn-outline w-full justify-start"
+                        onClick={() => handleAddPlayer(user._id)}
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        {user.name}
+                      </button>
+                    ))}
+                  {allUsers.filter((user) => !session.participants.some((p) => p.userId === user._id))
+                    .length === 0 && (
+                    <p className="text-center opacity-70 py-4">
+                      No additional players available. All users are already in this session.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-center opacity-70 py-4">Loading users...</p>
+              )}
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => setShowAddPlayer(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+          <form method="dialog" className="modal-backdrop" onClick={() => setShowAddPlayer(false)}>
+            <button>close</button>
+          </form>
+        </dialog>
       )}
     </div>
   );
