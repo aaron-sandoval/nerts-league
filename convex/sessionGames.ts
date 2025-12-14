@@ -1,7 +1,6 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { getCurrentUserOrCrash } from "./users";
 import { Id } from "./_generated/dataModel";
 import { DEFAULT_LEAGUE_RULES } from "./sessions";
 
@@ -19,8 +18,6 @@ export const recordSessionGame = mutation({
     noWinner: v.optional(v.boolean()), // If true, don't set a winner
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     if (args.playerScores.length === 0) {
       throw new ConvexError("At least one player score is required");
     }
@@ -198,8 +195,6 @@ export const updateGameScores = mutation({
     noWinner: v.optional(v.boolean()), // If true, don't set a winner
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     const game = await ctx.db.get(args.gameId);
     if (!game) {
       throw new ConvexError("Game not found");

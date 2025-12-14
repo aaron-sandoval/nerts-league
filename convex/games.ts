@@ -1,7 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { getCurrentUserOrCrash } from "./users";
 
 // Get all games, sorted by date (most recent first)
 export const listGames = query({
@@ -77,8 +76,6 @@ export const recordGame = mutation({
     rules: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     if (args.playerScores.length === 0) {
       throw new ConvexError("At least one player score is required");
     }

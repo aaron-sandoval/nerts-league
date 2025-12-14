@@ -1,6 +1,5 @@
-import { query, mutation } from "./_generated/server";
+import { query } from "./_generated/server";
 import { v } from "convex/values";
-import { getCurrentUserOrCrash } from "./users";
 
 // Get player stats for a specific user
 export const getPlayerStats = query({
@@ -56,48 +55,5 @@ export const getLeaderboard = query({
       .sort((a, b) => b.totalPoints - a.totalPoints); // Sort by total points descending
 
     return leaderboard;
-  },
-});
-
-// Initialize or get player stats for current user
-export const ensurePlayerStats = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await getCurrentUserOrCrash(ctx);
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerkId", (q) => q.eq("clerkId", identity.subject))
-      .unique();
-
-    if (!user) {
-      throw new Error("User not found");
-    }
-
-    const existingStats = await ctx.db
-      .query("players")
-      .withIndex("by_userId", (q) => q.eq("userId", user._id))
-      .unique();
-
-    if (existingStats) {
-      return existingStats;
-    }
-
-    // TODO: Get starting handicap from league settings
-    const DEFAULT_STARTING_HANDICAP = 13;
-
-    const statsId = await ctx.db.insert("players", {
-      userId: user._id,
-      currentHandicap: DEFAULT_STARTING_HANDICAP,
-      gamesPlayed: 0,
-      totalPoints: 0,
-      wins: 0,
-    });
-
-    return await ctx.db.get(statsId);
   },
 });

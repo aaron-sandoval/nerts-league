@@ -1,7 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { getCurrentUserOrCrash, getCurrentUserOrNull } from "./users";
 
 // Default league rules
 export const DEFAULT_LEAGUE_RULES = {
@@ -20,14 +19,10 @@ export const createSession = mutation({
     isRanked: v.boolean(),
     isPublic: v.optional(v.boolean()), // For unranked sessions
     participantIds: v.array(v.id("users")),
+    createdBy: v.id("users"),
     rules: v.optional(v.string()), // JSON string, uses league defaults if not provided
   },
   handler: async (ctx, args) => {
-    const user = await getCurrentUserOrCrash(ctx);
-    if (!user) {
-      throw new ConvexError("Not authenticated");
-    }
-
     // Get league settings for default rules
     let rules = args.rules;
     if (!rules) {
@@ -45,7 +40,7 @@ export const createSession = mutation({
       isRanked: args.isRanked,
       isPublic,
       participantIds: args.participantIds,
-      createdBy: user._id,
+      createdBy: args.createdBy,
       isActive: true,
       rules,
     });
@@ -61,8 +56,6 @@ export const addPlayerToSession = mutation({
     playerId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     const session = await ctx.db.get(args.sessionId);
     if (!session) {
       throw new ConvexError("Session not found");
@@ -89,8 +82,6 @@ export const endSession = mutation({
     sessionId: v.id("sessions"),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     await ctx.db.patch(args.sessionId, {
       isActive: false,
     });
@@ -101,21 +92,10 @@ export const endSession = mutation({
 export const getSessionDetails = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
-    const currentUser = await getCurrentUserOrNull(ctx);
     const session = await ctx.db.get(args.sessionId);
 
     if (!session) {
       throw new ConvexError("Session not found");
-    }
-
-    // Privacy check
-    if (!session.isPublic) {
-      if (!currentUser) {
-        throw new ConvexError("Not authenticated");
-      }
-      if (!session.participantIds.includes(currentUser._id)) {
-        throw new ConvexError("You do not have access to this session");
-      }
     }
 
     // Get all games in this session
@@ -194,8 +174,6 @@ export const listSessions = query({
     includeEnded: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const currentUser = await getCurrentUserOrNull(ctx);
-
     let sessions = await ctx.db
       .query("sessions")
       .withIndex("by_date")
@@ -206,19 +184,6 @@ export const listSessions = query({
     if (!args.includeEnded) {
       sessions = sessions.filter((s) => s.isActive);
     }
-
-    // Privacy filtering
-    sessions = sessions.filter((session) => {
-      // Public sessions are visible to all
-      if (session.isPublic) return true;
-
-      // Private sessions only visible to participants
-      if (currentUser && session.participantIds.includes(currentUser._id)) {
-        return true;
-      }
-
-      return false;
-    });
 
     // Enrich with participant count and creator name
     const enrichedSessions = await Promise.all(
@@ -236,22 +201,19 @@ export const listSessions = query({
   },
 });
 
-// Get active session for current user
+// Get active session for a user
 export const getActiveSession = query({
-  args: {},
-  handler: async (ctx) => {
-    const currentUser = await getCurrentUserOrNull(ctx);
-    if (!currentUser) {
-      return null;
-    }
-
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
     // Find active sessions where user is a participant
     const sessions = await ctx.db
       .query("sessions")
       .withIndex("by_isActive", (q) => q.eq("isActive", true))
       .collect();
 
-    const userSession = sessions.find((s) => s.participantIds.includes(currentUser._id));
+    const userSession = sessions.find((s) => s.participantIds.includes(args.userId));
 
     return userSession?._id || null;
   },

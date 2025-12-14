@@ -1,27 +1,15 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { getCurrentUserOrNull } from "./users";
 
 // Calculate stats for a single session
 export const getSessionStats = query({
   args: { sessionId: v.id("sessions") },
   handler: async (ctx, args) => {
-    const currentUser = await getCurrentUserOrNull(ctx);
     const session = await ctx.db.get(args.sessionId);
 
     if (!session) {
       throw new ConvexError("Session not found");
-    }
-
-    // Privacy check
-    if (!session.isPublic) {
-      if (!currentUser) {
-        throw new ConvexError("Not authenticated");
-      }
-      if (!session.participantIds.includes(currentUser._id)) {
-        throw new ConvexError("You do not have access to this session");
-      }
     }
 
     // Get all games in this session
@@ -291,14 +279,12 @@ export const getCareerStats = query({
   },
 });
 
-// Get detailed career stats for the current user
+// Get detailed career stats for a user
 export const getMyCareerStats = query({
-  args: {},
-  handler: async (ctx) => {
-    const currentUser = await getCurrentUserOrNull(ctx);
-    if (!currentUser) {
-      throw new ConvexError("Not authenticated");
-    }
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
 
     // Get all ranked sessions
     const sessions = await ctx.db.query("sessions").collect();
@@ -323,14 +309,14 @@ export const getMyCareerStats = query({
     const opponentHandicaps: number[] = [];
 
     for (const game of allGames) {
-      const myScore = game.playerScores.find((ps: any) => ps.playerId === currentUser._id);
+      const myScore = game.playerScores.find((ps: any) => ps.playerId === args.userId);
       if (myScore) {
         myScores.push(myScore.score);
         myHandicaps.push(myScore.handicap || 0);
         if (game.sessionId) {
           sessionsPlayed.add(game.sessionId);
         }
-        if (game.nertsPlayerId === currentUser._id) {
+        if (game.nertsPlayerId === args.userId) {
           timesReachedNerts++;
         }
 
@@ -339,7 +325,7 @@ export const getMyCareerStats = query({
 
         // Collect opponent handicaps (all players except me)
         const opponentHandicapsInGame = game.playerScores
-          .filter((ps: any) => ps.playerId !== currentUser._id)
+          .filter((ps: any) => ps.playerId !== args.userId)
           .map((ps: any) => ps.handicap || 0);
 
         if (opponentHandicapsInGame.length > 0) {
@@ -382,7 +368,7 @@ export const getMyCareerStats = query({
 
     // Calculate rank by getting all career stats and finding this user
     const allStats = await calculateAllCareerStats(ctx);
-    const myRank = allStats.find((s) => s.userId === currentUser._id)?.rank || null;
+    const myRank = allStats.find((s) => s.userId === args.userId)?.rank || null;
 
     // Calculate percentiles
     const sortedScores = [...myScores].sort((a, b) => a - b);

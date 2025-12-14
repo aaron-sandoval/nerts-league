@@ -1,6 +1,5 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { getCurrentUserOrCrash } from "./users";
 
 // Get league settings (singleton)
 export const getLeagueSettings = query({
@@ -19,8 +18,6 @@ export const updateLeagueSettings = mutation({
     rules: v.string(),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     const existingSettings = await ctx.db.query("leagueSettings").first();
 
     if (existingSettings) {
@@ -58,8 +55,6 @@ export const createSessionRule = mutation({
     rules: v.string(),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     const ruleId = await ctx.db.insert("sessionRules", {
       name: args.name,
       description: args.description,
@@ -79,8 +74,6 @@ export const updateSessionRule = mutation({
     rules: v.string(),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     await ctx.db.patch(args.id, {
       name: args.name,
       description: args.description,
@@ -97,8 +90,6 @@ export const deleteSessionRule = mutation({
     id: v.id("sessionRules"),
   },
   handler: async (ctx, args) => {
-    await getCurrentUserOrCrash(ctx);
-
     await ctx.db.delete(args.id);
   },
 });

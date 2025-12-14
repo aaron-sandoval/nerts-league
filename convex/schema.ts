@@ -5,10 +5,9 @@ import { v } from "convex/values";
 // For more information, see https://docs.convex.dev/database/schema
 export default defineSchema({
   users: defineTable({
-    clerkId: v.string(),
-    name: v.optional(v.string()),
-    gamertag: v.optional(v.string()),
-  }).index("by_clerkId", ["clerkId"]),
+    name: v.string(),
+    gamertag: v.string(),
+  }).index("by_gamertag", ["gamertag"]),
 
   // Player profiles with stats and current handicap
   players: defineTable({

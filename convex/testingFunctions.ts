@@ -25,11 +25,11 @@ export const deleteTestUser = testingMutation({
 });
 
 export const createTestUser = testingMutation({
-  args: { name: v.string(), clerkId: v.optional(v.string()) },
-  handler: async (ctx, { name, clerkId }) => {
+  args: { name: v.string(), gamertag: v.optional(v.string()) },
+  handler: async (ctx, { name, gamertag }) => {
     const userId = await ctx.db.insert("users", {
       name,
-      clerkId: clerkId || `test_${name.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}`,
+      gamertag: gamertag || `test_${name.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}`,
     });
     return userId;
   },
