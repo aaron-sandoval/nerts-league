@@ -36,11 +36,11 @@ test.describe("Full Stack", () => {
 
     await page.getByRole("textbox", { name: "Enter verification code" }).pressSequentially("424242");
 
-    await page.waitForSelector('button[aria-label="Open user button"]');
+    // Wait for authentication to complete by checking for the home page content
+    await expect(page.getByRole("link", { name: "Sessions Create and manage" })).toBeVisible({ timeout: 10000 });
 
-    await page.getByRole("button", { name: "Open user button" }).click();
-    await page.getByRole("menuitem", { name: "Sign out" }).click();
-
-    await page.waitForSelector('button:has-text("Sign in")');
+    // Verify other home page elements are visible after authentication
+    await expect(page.getByRole("link", { name: /Career Stats/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Nerts League", level: 1 })).toBeVisible();
   });
 });

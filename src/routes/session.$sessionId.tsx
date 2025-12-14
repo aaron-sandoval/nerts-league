@@ -4,7 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, Save, Trophy, BarChart3, Check, X, Pencil, UserPlus } from "lucide-react";
 import { api } from "../../convex/_generated/api";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Id } from "../../convex/_generated/dataModel";
 
 export const Route = createFileRoute("/session/$sessionId")({
@@ -110,7 +110,7 @@ function SessionPage() {
   };
 
   // Calculate winner (highest score)
-  const getWinner = () => {
+  const getWinner = useCallback(() => {
     let highestScore = -Infinity;
     let winnerId = "";
 
@@ -123,7 +123,7 @@ function SessionPage() {
     });
 
     return winnerId;
-  };
+  }, [newGameScores]);
 
   // Calculate nerts player (highest score)
   const getNertsPlayer = () => {
@@ -145,8 +145,6 @@ function SessionPage() {
 
     setIsSubmitting(true);
     try {
-      // Use selectedWinnerId if set, otherwise use auto-calculated winner
-      const winnerId = selectedWinnerId || getWinner();
       const noWinner = selectedWinnerId === null;
       const nertsPlayerId = noWinner ? undefined : (selectedWinnerId || getNertsPlayer());
 
@@ -223,7 +221,7 @@ function SessionPage() {
       if (index < orderedParticipants.length - 1) {
         setFocusedCell(index + 1);
       } else {
-        handleRecordGame();
+        void handleRecordGame();
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -250,15 +248,12 @@ function SessionPage() {
       const autoWinner = getWinner();
       setSelectedWinnerId(autoWinner || null);
     }
-  }, [newGameScores, showScoreEntry, manuallySelectedWinner]);
+  }, [newGameScores, showScoreEntry, manuallySelectedWinner, getWinner]);
 
   // Get players with scores for the dropdown
   const playersWithScores = Object.entries(newGameScores)
     .filter(([_, score]) => score !== "" && !isNaN(Number(score)))
     .map(([playerId]) => playerId);
-
-  const winnerId = selectedWinnerId;
-  const nertsPlayerId = selectedWinnerId;
 
   return (
     <div>
@@ -289,7 +284,7 @@ function SessionPage() {
               <button className="btn btn-primary btn-sm" onClick={initializeNewGame}>
                 <Save className="w-4 h-4" /> Record New Game
               </button>
-              <button className="btn btn-error btn-sm" onClick={handleEndSession}>
+              <button className="btn btn-error btn-sm" onClick={() => void handleEndSession()}>
                 End Session
               </button>
             </>
@@ -404,7 +399,7 @@ function SessionPage() {
                       <div className="flex gap-1">
                         <button
                           className="btn btn-success btn-xs"
-                          onClick={handleRecordGame}
+                          onClick={() => void handleRecordGame()}
                           disabled={isSubmitting}
                           title="Save (Enter)"
                         >
@@ -506,7 +501,7 @@ function SessionPage() {
                       <button
                         key={user._id}
                         className="btn btn-outline w-full justify-start"
-                        onClick={() => handleAddPlayer(user._id)}
+                        onClick={() => void handleAddPlayer(user._id)}
                       >
                         <UserPlus className="w-4 h-4" />
                         {user.name}

@@ -110,8 +110,8 @@ export const recordSessionGame = mutation({
         score: ps.score,
         handicap: ps.handicap,
       })),
-      nertsPlayerId: nertsPlayerId as Id<"users"> | undefined,
-      winnerId: winnerId as Id<"users"> | undefined,
+      nertsPlayerId,
+      winnerId,
     });
 
     // Update handicaps based on rules (only if session is ranked)
@@ -252,8 +252,8 @@ export const updateGameScores = mutation({
     // Update the game
     await ctx.db.patch(args.gameId, {
       playerScores: adjustedScores,
-      nertsPlayerId: (args.nertsPlayerId || winnerId) as Id<"users"> | undefined,
-      winnerId: winnerId as Id<"users"> | undefined,
+      nertsPlayerId: args.nertsPlayerId || winnerId,
+      winnerId,
     });
 
     // TODO: Recalculate handicaps for all subsequent games in the session if ranked

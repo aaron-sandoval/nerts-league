@@ -1,7 +1,7 @@
 import { convexQuery } from "@convex-dev/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Authenticated, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { Plus, PlayCircle, Trophy } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { useState } from "react";
@@ -39,7 +39,7 @@ function SessionsPage() {
 
     setIsCreating(true);
     try {
-      const sessionId = await createSession({
+      await createSession({
         name: sessionName || undefined,
         isRanked,
         isPublic: isRanked ? undefined : isPublic, // Ranked sessions are always public
@@ -267,7 +267,7 @@ function SessionsPage() {
               </button>
               <button
                 className="btn btn-primary"
-                onClick={handleCreateSession}
+                onClick={() => void handleCreateSession()}
                 disabled={isCreating || selectedPlayers.length === 0}
               >
                 {isCreating ? "Creating..." : "Create Session"}
