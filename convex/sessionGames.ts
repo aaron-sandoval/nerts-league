@@ -15,6 +15,7 @@ export const recordSessionGame = mutation({
       })
     ),
     nertsPlayerId: v.optional(v.id("users")), // Who reached Nerts (if any)
+    noWinner: v.optional(v.boolean()), // If true, don't set a winner
   },
   handler: async (ctx, args) => {
     await getCurrentUserOrCrash(ctx);
@@ -73,18 +74,21 @@ export const recordSessionGame = mutation({
       };
     });
 
-    // Determine winner (highest adjusted score)
-    let winnerId = adjustedScores[0].playerId;
-    let highestScore = adjustedScores[0].score;
+    // Determine winner (highest adjusted score) - unless noWinner is true
+    let winnerId: string | undefined = undefined;
+    if (!args.noWinner) {
+      winnerId = adjustedScores[0].playerId;
+      let highestScore = adjustedScores[0].score;
 
-    for (const ps of adjustedScores) {
-      if (ps.score > highestScore) {
-        highestScore = ps.score;
-        winnerId = ps.playerId;
+      for (const ps of adjustedScores) {
+        if (ps.score > highestScore) {
+          highestScore = ps.score;
+          winnerId = ps.playerId;
+        }
       }
     }
 
-    // If no nertsPlayer was specified, default to the winner
+    // If no nertsPlayer was specified, default to the winner (or undefined if noWinner)
     const nertsPlayerId = args.nertsPlayerId || winnerId;
 
     // Get next game number
@@ -190,6 +194,7 @@ export const updateGameScores = mutation({
       })
     ),
     nertsPlayerId: v.optional(v.id("users")),
+    noWinner: v.optional(v.boolean()), // If true, don't set a winner
   },
   handler: async (ctx, args) => {
     await getCurrentUserOrCrash(ctx);
@@ -229,14 +234,17 @@ export const updateGameScores = mutation({
       };
     });
 
-    // Determine new winner
-    let winnerId = adjustedScores[0].playerId;
-    let highestScore = adjustedScores[0].score;
+    // Determine new winner - unless noWinner is true
+    let winnerId: string | undefined = undefined;
+    if (!args.noWinner) {
+      winnerId = adjustedScores[0].playerId;
+      let highestScore = adjustedScores[0].score;
 
-    for (const ps of adjustedScores) {
-      if (ps.score > highestScore) {
-        highestScore = ps.score;
-        winnerId = ps.playerId;
+      for (const ps of adjustedScores) {
+        if (ps.score > highestScore) {
+          highestScore = ps.score;
+          winnerId = ps.playerId;
+        }
       }
     }
 

@@ -2,7 +2,7 @@ import { convexQuery } from "@convex-dev/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
-import { ArrowLeft, Save, Trophy, BarChart3, Check, X } from "lucide-react";
+import { ArrowLeft, Save, Trophy, BarChart3, Check, X, Pencil } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { useState, useRef, useEffect } from "react";
 import { Id } from "../../convex/_generated/dataModel";
@@ -30,9 +30,12 @@ function SessionPage() {
   const [newGameScores, setNewGameScores] = useState<Record<string, number | "">>({});
   const [focusedCell, setFocusedCell] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [noWinner, setNoWinner] = useState(false);
+  const [editingGameId, setEditingGameId] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const recordGame = useMutation(api.sessionGames.recordSessionGame);
+  const updateGame = useMutation(api.sessionGames.updateGameScores);
   const endSession = useMutation(api.sessions.endSession);
 
   // Initialize scores for new game
@@ -44,6 +47,24 @@ function SessionPage() {
     setNewGameScores(initialScores);
     setShowScoreEntry(true);
     setFocusedCell(0);
+    setNoWinner(false);
+    setEditingGameId(null);
+  };
+
+  // Initialize editing an existing game
+  const initializeEditGame = (gameId: string) => {
+    const game = session.games.find((g) => g._id === gameId);
+    if (!game) return;
+
+    const scores: Record<string, number | ""> = {};
+    game.playerScores.forEach((ps) => {
+      scores[ps.playerId] = ps.score;
+    });
+    setNewGameScores(scores);
+    setShowScoreEntry(true);
+    setEditingGameId(gameId);
+    setFocusedCell(0);
+    setNoWinner(!game.winnerId);
   };
 
   // Calculate winner (highest score)
@@ -82,16 +103,31 @@ function SessionPage() {
 
     setIsSubmitting(true);
     try {
-      const nertsPlayerId = getNertsPlayer();
-      await recordGame({
-        sessionId: sessionId as any,
-        playerScores,
-        nertsPlayerId: nertsPlayerId ? (nertsPlayerId as any) : undefined,
-      });
+      const nertsPlayerId = noWinner ? undefined : getNertsPlayer();
+
+      if (editingGameId) {
+        // Update existing game
+        await updateGame({
+          gameId: editingGameId as any,
+          playerScores,
+          nertsPlayerId: nertsPlayerId ? (nertsPlayerId as any) : undefined,
+          noWinner: noWinner || undefined,
+        });
+      } else {
+        // Create new game
+        await recordGame({
+          sessionId: sessionId as any,
+          playerScores,
+          nertsPlayerId: nertsPlayerId ? (nertsPlayerId as any) : undefined,
+          noWinner: noWinner || undefined,
+        });
+      }
 
       setShowScoreEntry(false);
       setNewGameScores({});
       setFocusedCell(0);
+      setNoWinner(false);
+      setEditingGameId(null);
     } catch (error) {
       console.error("Failed to record game:", error);
       alert("Failed to record game. Please try again.");
@@ -133,6 +169,8 @@ function SessionPage() {
       setShowScoreEntry(false);
       setNewGameScores({});
       setFocusedCell(0);
+      setNoWinner(false);
+      setEditingGameId(null);
     }
   };
 
@@ -144,8 +182,8 @@ function SessionPage() {
     }
   }, [focusedCell, showScoreEntry]);
 
-  const winnerId = getWinner();
-  const nertsPlayerId = getNertsPlayer();
+  const winnerId = noWinner ? null : getWinner();
+  const nertsPlayerId = noWinner ? null : getNertsPlayer();
 
   return (
     <div>
@@ -209,7 +247,7 @@ function SessionPage() {
         ) : (
           <div className="overflow-x-auto not-prose">
             <table className="table table-zebra">
-              <thead>
+              <thead className="sticky top-0 bg-base-100 z-10">
                 <tr>
                   <th className="w-16">Game #</th>
                   <th className="w-24">Time</th>
@@ -221,15 +259,19 @@ function SessionPage() {
                   ))}
                   <th className="w-24">Nerts</th>
                   <th className="w-24">Winner</th>
-                  {showScoreEntry && <th className="w-24">Actions</th>}
+                  <th className="w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {/* New game entry row */}
                 {showScoreEntry && (
                   <tr className="bg-primary bg-opacity-10">
-                    <td className="font-bold">#{session.games.length + 1}</td>
-                    <td className="text-xs opacity-70">Now</td>
+                    <td className="font-bold">
+                      {editingGameId
+                        ? `#${session.games.find((g) => g._id === editingGameId)?.gameNumber || "?"}`
+                        : `#${session.games.length + 1}`}
+                    </td>
+                    <td className="text-xs opacity-70">{editingGameId ? "Editing" : "Now"}</td>
                     {session.participants.map((p, index) => (
                       <td key={p.userId} className="text-center p-1">
                         <input
@@ -253,18 +295,30 @@ function SessionPage() {
                       </td>
                     ))}
                     <td className="text-center">
-                      {nertsPlayerId && (
+                      {nertsPlayerId && !noWinner && (
                         <span className="badge badge-sm badge-success">
                           {session.participants.find((p) => p.userId === nertsPlayerId)?.name}
                         </span>
                       )}
                     </td>
                     <td className="text-center">
-                      {winnerId && (
-                        <span className="badge badge-sm badge-primary">
-                          {session.participants.find((p) => p.userId === winnerId)?.name}
-                        </span>
-                      )}
+                      <div className="flex flex-col items-center gap-1">
+                        {winnerId && !noWinner && (
+                          <span className="badge badge-sm badge-primary">
+                            {session.participants.find((p) => p.userId === winnerId)?.name}
+                          </span>
+                        )}
+                        <label className="flex items-center gap-1 cursor-pointer text-xs">
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-xs"
+                            checked={noWinner}
+                            onChange={(e) => setNoWinner(e.target.checked)}
+                            disabled={isSubmitting}
+                          />
+                          <span className="opacity-70">No winner</span>
+                        </label>
+                      </div>
                     </td>
                     <td>
                       <div className="flex gap-1">
@@ -282,6 +336,8 @@ function SessionPage() {
                             setShowScoreEntry(false);
                             setNewGameScores({});
                             setFocusedCell(0);
+                            setNoWinner(false);
+                            setEditingGameId(null);
                           }}
                           disabled={isSubmitting}
                           title="Cancel (Esc)"
@@ -294,40 +350,57 @@ function SessionPage() {
                 )}
 
                 {/* Previous games */}
-                {session.games.map((game) => (
-                  <tr key={game._id}>
-                    <td>#{game.gameNumber}</td>
-                    <td className="text-xs opacity-70">
-                      {new Date(game.date).toLocaleTimeString()}
-                    </td>
-                    {session.participants.map((p) => {
-                      const score = game.playerScores.find((ps) => ps.playerId === p.userId);
-                      return (
-                        <td key={p.userId} className="text-center">
-                          {score ? (
-                            <div>
-                              <div className="font-bold">{score.score}</div>
-                              <div className="text-xs opacity-50">({score.handicap} cards)</div>
-                            </div>
-                          ) : (
-                            <span className="opacity-30">-</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="text-center">
-                      {game.nertsPlayerName && (
-                        <span className="badge badge-sm badge-success">{game.nertsPlayerName}</span>
-                      )}
-                    </td>
-                    <td className="text-center">
-                      {game.winnerName && (
-                        <span className="badge badge-sm badge-primary">{game.winnerName}</span>
-                      )}
-                    </td>
-                    {showScoreEntry && <td></td>}
-                  </tr>
-                ))}
+                {session.games.map((game) => {
+                  const isEditing = editingGameId === game._id;
+                  if (isEditing && showScoreEntry) return null; // Hide when editing this game
+
+                  return (
+                    <tr key={game._id}>
+                      <td>#{game.gameNumber}</td>
+                      <td className="text-xs opacity-70">
+                        {new Date(game.date).toLocaleTimeString()}
+                      </td>
+                      {session.participants.map((p) => {
+                        const score = game.playerScores.find((ps) => ps.playerId === p.userId);
+                        return (
+                          <td key={p.userId} className="text-center">
+                            {score ? (
+                              <div>
+                                <div className="font-bold">{score.score}</div>
+                                <div className="text-xs opacity-50">({score.handicap} cards)</div>
+                              </div>
+                            ) : (
+                              <span className="opacity-30">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="text-center">
+                        {game.nertsPlayerName && (
+                          <span className="badge badge-sm badge-success">{game.nertsPlayerName}</span>
+                        )}
+                      </td>
+                      <td className="text-center">
+                        {game.winnerName ? (
+                          <span className="badge badge-sm badge-primary">{game.winnerName}</span>
+                        ) : (
+                          <span className="text-xs opacity-50">No winner</span>
+                        )}
+                      </td>
+                      <td>
+                        {session.isActive && !showScoreEntry && (
+                          <button
+                            className="btn btn-ghost btn-xs"
+                            onClick={() => initializeEditGame(game._id)}
+                            title="Edit game"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -338,7 +411,8 @@ function SessionPage() {
         <div className="not-prose mt-4 p-4 bg-base-200 rounded-lg">
           <p className="text-sm opacity-70">
             <strong>Keyboard shortcuts:</strong> Use <kbd className="kbd kbd-sm">←</kbd> and <kbd className="kbd kbd-sm">→</kbd> to navigate between cells,
-            <kbd className="kbd kbd-sm">Enter</kbd> to save, <kbd className="kbd kbd-sm">Esc</kbd> to cancel
+            <kbd className="kbd kbd-sm">Enter</kbd> to save, <kbd className="kbd kbd-sm">Esc</kbd> to cancel.
+            {editingGameId ? " Editing existing game." : " Recording new game."} Check "No winner" if no one won.
           </p>
         </div>
       )}
