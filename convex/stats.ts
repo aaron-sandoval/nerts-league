@@ -133,9 +133,11 @@ async function calculateAllCareerStats(ctx: any) {
     userId: string;
     sessionsPlayed: Set<string>;
     gamesPlayed: number;
-    totalScore: number;
+    scores: number[];
+    handicaps: number[];
     timesReachedNerts: number;
-    totalHandicap: number;
+    totalPlayersInGames: number;
+    opponentHandicaps: number[];
     wins: number;
   }>();
 
@@ -144,9 +146,11 @@ async function calculateAllCareerStats(ctx: any) {
       userId: player.userId,
       sessionsPlayed: new Set(),
       gamesPlayed: 0,
-      totalScore: 0,
+      scores: [],
+      handicaps: [],
       timesReachedNerts: 0,
-      totalHandicap: 0,
+      totalPlayersInGames: 0,
+      opponentHandicaps: [],
       wins: 0,
     });
   }
@@ -161,9 +165,11 @@ async function calculateAllCareerStats(ctx: any) {
           userId: ps.playerId,
           sessionsPlayed: new Set(),
           gamesPlayed: 0,
-          totalScore: 0,
+          scores: [],
+          handicaps: [],
           timesReachedNerts: 0,
-          totalHandicap: 0,
+          totalPlayersInGames: 0,
+          opponentHandicaps: [],
           wins: 0,
         };
         statsMap.set(ps.playerId, stats);
@@ -173,8 +179,21 @@ async function calculateAllCareerStats(ctx: any) {
         stats.sessionsPlayed.add(game.sessionId);
       }
       stats.gamesPlayed++;
-      stats.totalScore += ps.score;
-      stats.totalHandicap += ps.handicap || 0;
+      stats.scores.push(ps.score);
+      stats.handicaps.push(ps.handicap || 0);
+
+      // Count total players in this game
+      stats.totalPlayersInGames += game.playerScores.length;
+
+      // Collect opponent handicaps (all players except this one)
+      const opponentHandicapsInGame = game.playerScores
+        .filter((otherPs: any) => otherPs.playerId !== ps.playerId)
+        .map((otherPs: any) => otherPs.handicap || 0);
+
+      if (opponentHandicapsInGame.length > 0) {
+        const avgOpponentHandicap = opponentHandicapsInGame.reduce((a: number, b: number) => a + b, 0) / opponentHandicapsInGame.length;
+        stats.opponentHandicaps.push(avgOpponentHandicap);
+      }
 
       if (game.nertsPlayerId === ps.playerId) {
         stats.timesReachedNerts++;
@@ -192,15 +211,57 @@ async function calculateAllCareerStats(ctx: any) {
       const userDoc = await ctx.db.get(stats.userId as any);
       const userName = userDoc && 'name' in userDoc ? userDoc.name : undefined;
       const userGamertag = userDoc && 'gamertag' in userDoc ? userDoc.gamertag : undefined;
+
+      const matchesPlayed = stats.gamesPlayed;
+
+      // Calculate basic stats
+      const totalScore = stats.scores.reduce((a, b) => a + b, 0);
+      const averageScore = matchesPlayed > 0 ? totalScore / matchesPlayed : 0;
+      const averagePlayersPerMatch = matchesPlayed > 0 ? stats.totalPlayersInGames / matchesPlayed : 0;
+      const expectedMatchesReachingNerts = averagePlayersPerMatch > 0 ? matchesPlayed / averagePlayersPerMatch : 0;
+      const timesRandomRate = expectedMatchesReachingNerts > 0 ? stats.timesReachedNerts / expectedMatchesReachingNerts : 0;
+
+      // Calculate percentiles
+      const sortedScores = [...stats.scores].sort((a, b) => a - b);
+      const percentile25 = matchesPlayed > 0 ? sortedScores[Math.floor(matchesPlayed * 0.25)] || 0 : 0;
+      const median = matchesPlayed > 0 ? sortedScores[Math.floor(matchesPlayed * 0.5)] || 0 : 0;
+      const percentile75 = matchesPlayed > 0 ? sortedScores[Math.floor(matchesPlayed * 0.75)] || 0 : 0;
+
+      // Calculate standard deviation
+      const variance = matchesPlayed > 0
+        ? stats.scores.reduce((sum, score) => sum + Math.pow(score - averageScore, 2), 0) / matchesPlayed
+        : 0;
+      const standardDeviation = Math.sqrt(variance);
+
+      // Calculate matchup stats
+      const averageHandicap = matchesPlayed > 0
+        ? stats.handicaps.reduce((a, b) => a + b, 0) / matchesPlayed
+        : 0;
+      const averageOpponentHandicap = stats.opponentHandicaps.length > 0
+        ? stats.opponentHandicaps.reduce((a, b) => a + b, 0) / stats.opponentHandicaps.length
+        : 0;
+      const averageDifferential = averageHandicap - averageOpponentHandicap;
+
       return {
         userId: stats.userId,
         name: userName || "Unknown",
         gamertag: userGamertag,
         sessionsPlayed: stats.sessionsPlayed.size,
-        gamesPlayed: stats.gamesPlayed,
-        averageScore: stats.gamesPlayed > 0 ? stats.totalScore / stats.gamesPlayed : 0,
-        timesReachedNerts: stats.timesReachedNerts,
-        averageHandicap: stats.gamesPlayed > 0 ? stats.totalHandicap / stats.gamesPlayed : 0,
+        matchesPlayed,
+        matchesReachedNerts: stats.timesReachedNerts,
+        fractionReachedNerts: matchesPlayed > 0 ? stats.timesReachedNerts / matchesPlayed : 0,
+        averagePlayersPerMatch,
+        expectedMatchesReachingNerts,
+        timesRandomRate,
+        totalScore,
+        averageScore,
+        percentile25,
+        median,
+        percentile75,
+        standardDeviation,
+        averageHandicap,
+        averageOpponentHandicap,
+        averageDifferential,
         wins: stats.wins,
       };
     })
@@ -208,15 +269,15 @@ async function calculateAllCareerStats(ctx: any) {
 
   // Sort by average score (descending) and add rank
   statsArray.sort((a, b) => {
-    if (a.gamesPlayed === 0 && b.gamesPlayed === 0) return 0;
-    if (a.gamesPlayed === 0) return 1;
-    if (b.gamesPlayed === 0) return -1;
+    if (a.matchesPlayed === 0 && b.matchesPlayed === 0) return 0;
+    if (a.matchesPlayed === 0) return 1;
+    if (b.matchesPlayed === 0) return -1;
     return b.averageScore - a.averageScore;
   });
 
   const rankedStats = statsArray.map((stats, index) => ({
     ...stats,
-    rank: stats.gamesPlayed > 0 ? index + 1 : null,
+    rank: stats.matchesPlayed > 0 ? index + 1 : null,
   }));
 
   return rankedStats;
